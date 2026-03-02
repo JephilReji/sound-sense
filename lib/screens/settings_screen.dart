@@ -14,8 +14,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   late AnimationController _fadeCtrl;
 
   // Settings state
-  bool _hapticAlerts = true;
-  bool _visualFlash = true;
   bool _notifications = true;
   bool _panicMode = true;
   double _sensitivity = 0.65;
@@ -74,10 +72,6 @@ class _SettingsScreenState extends State<SettingsScreen>
 
                     _sectionHeader('ALERT COLOR GUIDE'),
                     _buildColorGuideCard(),
-                    const SizedBox(height: 20),
-
-                    _sectionHeader('ABOUT'),
-                    _buildAboutCard(),
                     const SizedBox(height: 40),
                   ],
                 ),
@@ -90,33 +84,16 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceElevated,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border),
-              ),
-              child: const Icon(Icons.arrow_back_ios_rounded, color: AppTheme.textSecondary, size: 18),
-            ),
-          ),
-          const SizedBox(width: 16),
-          const Text(
-            'Settings',
-            style: TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
+      child: Text(
+        'Settings',
+        style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 28,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
+        ),
       ),
     );
   }
@@ -140,28 +117,10 @@ class _SettingsScreenState extends State<SettingsScreen>
     return _SettingsCard(
       children: [
         _ToggleRow(
-          icon: Icons.vibration_rounded,
-          iconColor: const Color(0xFF00B4FF),
-          title: 'Haptic Vibration',
-          subtitle: 'Vibrate on danger detection',
-          value: _hapticAlerts,
-          onChanged: (v) => setState(() => _hapticAlerts = v),
-        ),
-        _divider(),
-        _ToggleRow(
-          icon: Icons.flash_on_rounded,
-          iconColor: const Color(0xFFFFDD00),
-          title: 'Visual Flash',
-          subtitle: 'Full-screen color alert',
-          value: _visualFlash,
-          onChanged: (v) => setState(() => _visualFlash = v),
-        ),
-        _divider(),
-        _ToggleRow(
           icon: Icons.notifications_rounded,
           iconColor: const Color(0xFF00EAAA),
           title: 'Notifications',
-          subtitle: 'Show system notification',
+          subtitle: 'Show system notification on danger',
           value: _notifications,
           onChanged: (v) => setState(() => _notifications = v),
         ),
@@ -431,22 +390,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _buildAboutCard() {
-    return _SettingsCard(
-      children: [
-        _InfoRow(label: 'App Version', value: '1.0.0 Beta'),
-        _divider(),
-        _InfoRow(label: 'AI Model', value: 'SafeSound v1 (Local)'),
-        _divider(),
-        _InfoRow(label: 'Sound Classes', value: '5 Categories'),
-        _divider(),
-        _InfoRow(label: 'Inference', value: 'On-device, Offline'),
-        _divider(),
-        _InfoRow(label: 'Designed for', value: 'Indian Road Safety'),
-      ],
-    );
-  }
-
   Widget _divider() => Divider(color: AppTheme.border, height: 1, thickness: 1);
 }
 
@@ -567,26 +510,6 @@ class _EmojiToggleRow extends StatelessWidget {
             inactiveThumbColor: AppTheme.textMuted,
             inactiveTrackColor: AppTheme.border,
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-  const _InfoRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
-          Text(value, style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
         ],
       ),
     );

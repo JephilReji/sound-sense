@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../models/app_state.dart';
 import '../theme/app_theme.dart';
 
@@ -59,12 +58,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
-  void _setMode(DetectionMode mode) {
-    widget.appState.setDetectionMode(mode);
-    setState(() {});
-    HapticFeedback.mediumImpact();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -77,8 +70,6 @@ class _ProfileScreenState extends State<ProfileScreen>
             slivers: [
               SliverToBoxAdapter(child: _buildHeader()),
               SliverToBoxAdapter(child: _buildProfileCard()),
-              SliverToBoxAdapter(child: const SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildDetectionModeSection()),
               SliverToBoxAdapter(child: const SizedBox(height: 20)),
               SliverToBoxAdapter(child: _buildEmergencySection()),
               SliverToBoxAdapter(child: const SizedBox(height: 20)),
@@ -93,50 +84,16 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   // ── HEADER
   Widget _buildHeader() {
-    final isNormal = widget.appState.detectionMode == DetectionMode.normal;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-      child: Row(
-        children: [
-          const Text(
-            'Profile',
-            style: TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              color: (isNormal ? AppTheme.accent : const Color(0xFF00EAAA))
-                  .withOpacity(0.12),
-              border: Border.all(
-                  color: (isNormal ? AppTheme.accent : const Color(0xFF00EAAA))
-                      .withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                Icon(widget.appState.modeIcon,
-                    color: isNormal ? AppTheme.accent : const Color(0xFF00EAAA),
-                    size: 14),
-                const SizedBox(width: 6),
-                Text(
-                  widget.appState.modeLabel,
-                  style: TextStyle(
-                    color: isNormal ? AppTheme.accent : const Color(0xFF00EAAA),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
+      child: Text(
+        'Profile',
+        style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 28,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
+        ),
       ),
     );
   }
@@ -282,84 +239,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  // ── DETECTION MODE
-  Widget _buildDetectionModeSection() {
-    final isNormal = widget.appState.detectionMode == DetectionMode.normal;
-    final activeColor = isNormal ? AppTheme.accent : const Color(0xFF00EAAA);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionLabel('DETECTION MODE'),
-          const SizedBox(height: 12),
-
-          // Two mode buttons side by side
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              color: AppTheme.cardBg,
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: Row(
-              children: [
-                _ModeButton(
-                  label: 'Normal',
-                  icon: Icons.traffic_rounded,
-                  subtitle: 'Roads & Traffic',
-                  isSelected: isNormal,
-                  color: AppTheme.accent,
-                  onTap: () => _setMode(DetectionMode.normal),
-                ),
-                const SizedBox(width: 6),
-                _ModeButton(
-                  label: 'Indoor',
-                  icon: Icons.home_rounded,
-                  subtitle: 'Enclosed Spaces',
-                  isSelected: !isNormal,
-                  color: const Color(0xFF00EAAA),
-                  onTap: () => _setMode(DetectionMode.indoor),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 10),
-          // Description strip
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              color: activeColor.withOpacity(0.07),
-              border: Border.all(color: activeColor.withOpacity(0.22)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded,
-                    color: activeColor, size: 16),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    widget.appState.modeDescription,
-                    style: TextStyle(
-                        color: activeColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ── EMERGENCY CONTACTS
   Widget _buildEmergencySection() {
     return Padding(
@@ -483,7 +362,6 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   // ── ALERT TIMEOUT
   Widget _buildAlertTimeoutCard() {
-    final options = [15, 30, 45, 60];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -498,56 +376,51 @@ class _ProfileScreenState extends State<ProfileScreen>
               color: AppTheme.cardBg,
               border: Border.all(color: AppTheme.border),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                const Text(
-                  'Notify emergency contacts if alert is not dismissed within:',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 13,
-                      height: 1.4),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: AppTheme.accent.withOpacity(0.12),
+                    border: Border.all(color: AppTheme.accent.withOpacity(0.3)),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      '45s',
+                      style: TextStyle(
+                        color: AppTheme.accent,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 14),
-                Row(
-                  children: options.map((sec) {
-                    final sel = widget.appState.alertDismissTimeout == sec;
-                    return Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          widget.appState.setAlertTimeout(sec);
-                          setState(() {});
-                          HapticFeedback.selectionClick();
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: sel
-                                ? AppTheme.accent.withOpacity(0.18)
-                                : AppTheme.surfaceElevated,
-                            border: Border.all(
-                              color: sel ? AppTheme.accent : AppTheme.border,
-                              width: sel ? 1.5 : 1,
-                            ),
-                          ),
-                          child: Text(
-                            '${sec}s',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: sel
-                                  ? AppTheme.accent
-                                  : AppTheme.textSecondary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Emergency contacts notified after 45 seconds',
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          height: 1.4,
                         ),
                       ),
-                    );
-                  }).toList(),
+                      SizedBox(height: 3),
+                      Text(
+                        'If a danger alert is not dismissed in time',
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -566,90 +439,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           letterSpacing: 1.5,
         ),
       );
-}
-
-// ── MODE BUTTON ─────────────────────────────────────────────
-class _ModeButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final String subtitle;
-  final bool isSelected;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ModeButton({
-    required this.label,
-    required this.icon,
-    required this.subtitle,
-    required this.isSelected,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: isSelected ? color.withOpacity(0.14) : Colors.transparent,
-            border: isSelected
-                ? Border.all(color: color.withOpacity(0.45), width: 1.5)
-                : null,
-            boxShadow: isSelected
-                ? [BoxShadow(color: color.withOpacity(0.12), blurRadius: 14)]
-                : null,
-          ),
-          child: Row(
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(11),
-                  color: isSelected
-                      ? color.withOpacity(0.2)
-                      : AppTheme.surfaceElevated,
-                ),
-                child: Icon(icon,
-                    color: isSelected ? color : AppTheme.textMuted, size: 20),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label,
-                        style: TextStyle(
-                          color: isSelected ? color : AppTheme.textSecondary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        )),
-                    Text(subtitle,
-                        style: TextStyle(
-                          color: isSelected
-                              ? color.withOpacity(0.65)
-                              : AppTheme.textMuted,
-                          fontSize: 10,
-                        ),
-                        overflow: TextOverflow.ellipsis),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                Icon(Icons.check_circle_rounded, color: color, size: 17),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ── CONTACT CARD ────────────────────────────────────────────

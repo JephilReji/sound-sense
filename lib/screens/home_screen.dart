@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../models/sound_event.dart';
 import '../models/mock_detection_service.dart';
+import '../models/sound_event.dart';
 import '../theme/app_theme.dart';
 import 'alert_screen.dart';
 
@@ -17,22 +17,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final MockDetectionService _service = MockDetectionService();
   StreamSubscription<SoundEvent>? _sub;
 
-  late AnimationController _waveCtrl;
   late AnimationController _pulseCtrl;
 
   bool _isListening = false;
   double _currentDb = 0;
-  SoundEvent? _lastEvent;
   final List<SoundEvent> _recentEvents = [];
 
   @override
   void initState() {
     super.initState();
-
-    _waveCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
 
     _pulseCtrl = AnimationController(
       vsync: this,
@@ -45,14 +38,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _onEvent(SoundEvent event) {
     if (!mounted) return;
     setState(() {
-      _lastEvent = event;
       _currentDb = event.decibels;
       _recentEvents.insert(0, event);
       if (_recentEvents.length > 5) _recentEvents.removeLast();
     });
 
     if (event.isDangerous) {
-      _waveCtrl.forward(from: 0);
       Navigator.of(context).push(
         PageRouteBuilder(
           pageBuilder: (_, __, ___) => AlertScreen(event: event),
@@ -65,23 +56,136 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _toggleListening() {
-    setState(() => _isListening = !_isListening);
     if (_isListening) {
-      _service.start();
+      // Show confirmation before stopping — safety-critical friction
+      _showStopConfirmation();
     } else {
-      _service.stop();
-      setState(() {
-        _currentDb = 0;
-        _lastEvent = null;
-      });
+      setState(() => _isListening = true);
+      _service.start();
     }
+  }
+
+  void _showStopConfirmation() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (_) => Dialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.alertSiren.withOpacity(0.12),
+                ),
+                child: const Icon(Icons.pause_circle_outline_rounded,
+                    color: AppTheme.alertSiren, size: 30),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Pause Detection?',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'SoundSense is acting as your digital ears.\nPausing detection may put you at risk in traffic.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF1A6DFF), Color(0xFF0830A0)],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.accent.withOpacity(0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'Keep Active',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        _service.stop();
+                        setState(() {
+                          _isListening = false;
+                          _currentDb = 0;
+                        });
+                      },
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: AppTheme.surfaceElevated,
+                          border: Border.all(
+                            color: AppTheme.alertSiren.withOpacity(0.5),
+                          ),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'Pause',
+                            style: TextStyle(
+                              color: AppTheme.alertSiren,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
     _sub?.cancel();
     _service.dispose();
-    _waveCtrl.dispose();
     _pulseCtrl.dispose();
     super.dispose();
   }
@@ -110,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         const SizedBox(height: 24),
                         _buildDbMeter(),
                         const SizedBox(height: 24),
-                        _buildSoundClasses(),
+                        _buildModeSwitch(),
                         const SizedBox(height: 24),
                         _buildRecentDetections(),
                         const SizedBox(height: 32),
@@ -479,20 +583,135 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSoundClasses() {
-    final classes = [
-      {'sc': SoundClass.horn, 'emoji': '📯', 'label': 'Horn'},
-      {'sc': SoundClass.siren, 'emoji': '🚨', 'label': 'Siren'},
-      {'sc': SoundClass.engine, 'emoji': '⚙️', 'label': 'Engine'},
-      {'sc': SoundClass.heavyVehicle, 'emoji': '🚛', 'label': 'Heavy'},
-      {'sc': SoundClass.background, 'emoji': '🔈', 'label': 'BG Noise'},
-    ];
+  // Current detection mode — in a real app this would come from AppState
+  bool _isNormalMode = true;
+
+  void _showModeConfirmation(bool switchToNormal) {
+    final newLabel = switchToNormal ? 'Normal Mode' : 'Indoor Mode';
+    final newIcon  = switchToNormal ? Icons.traffic_rounded : Icons.home_rounded;
+    final newColor = switchToNormal ? AppTheme.accent : const Color(0xFF00EAAA);
+    final newDesc  = switchToNormal
+        ? 'Optimised for open roads & traffic'
+        : 'Optimised for enclosed spaces & buildings';
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (_) => Dialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56, height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: newColor.withOpacity(0.12),
+                ),
+                child: Icon(newIcon, color: newColor, size: 28),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Switch to $newLabel?',
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                newDesc,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Changing mode alters which sounds the AI monitors. Only switch if your environment has changed.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppTheme.textMuted,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: AppTheme.surfaceElevated,
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        child: const Center(
+                          child: Text('Cancel',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            )),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        setState(() => _isNormalMode = switchToNormal);
+                      },
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: newColor.withOpacity(0.15),
+                          border: Border.all(
+                            color: newColor.withOpacity(0.6),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Switch',
+                            style: TextStyle(
+                              color: newColor,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeSwitch() {
+    final activeColor = _isNormalMode ? AppTheme.accent : const Color(0xFF00EAAA);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'SOUND CLASSES',
+          'DETECTION MODE',
           style: TextStyle(
             color: AppTheme.textMuted,
             fontSize: 11,
@@ -501,73 +720,66 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(height: 12),
-        Row(
-          children: classes.map((c) {
-            final sc = c['sc'] as SoundClass;
-            final emoji = c['emoji'] as String;
-            final label = c['label'] as String;
-            final isActive = _lastEvent?.soundClass == sc;
-            return Expanded(
-              child: GestureDetector(
-                onTap: _isListening
-                    ? () => _service.triggerManual(sc)
-                    : null,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: isActive
-                        ? _getClassColor(sc).withOpacity(0.2)
-                        : AppTheme.cardBg,
-                    border: Border.all(
-                      color: isActive
-                          ? _getClassColor(sc)
-                          : AppTheme.border,
-                      width: isActive ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(emoji, style: const TextStyle(fontSize: 20)),
-                      const SizedBox(height: 4),
-                      Text(
-                        label,
-                        style: TextStyle(
-                          color: isActive
-                              ? _getClassColor(sc)
-                              : AppTheme.textMuted,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: AppTheme.cardBg,
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: Row(
+            children: [
+              _ModePill(
+                label: 'Normal',
+                icon: Icons.traffic_rounded,
+                subtitle: 'Roads & Traffic',
+                isSelected: _isNormalMode,
+                color: AppTheme.accent,
+                onTap: () => _isNormalMode ? null : _showModeConfirmation(true),
+              ),
+              const SizedBox(width: 6),
+              _ModePill(
+                label: 'Indoor',
+                icon: Icons.home_rounded,
+                subtitle: 'Enclosed Spaces',
+                isSelected: !_isNormalMode,
+                color: const Color(0xFF00EAAA),
+                onTap: () => _isNormalMode ? _showModeConfirmation(false) : null,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: activeColor.withOpacity(0.07),
+            border: Border.all(color: activeColor.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: activeColor, size: 15),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _isNormalMode
+                      ? 'Optimised for open roads & traffic sounds'
+                      : 'Optimised for enclosed spaces & buildings',
+                  style: TextStyle(
+                    color: activeColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Tap any class to simulate detection',
-          style: TextStyle(color: AppTheme.textMuted, fontSize: 11),
-          textAlign: TextAlign.center,
+            ],
+          ),
         ),
       ],
     );
-  }
-
-  Color _getClassColor(SoundClass sc) {
-    switch (sc) {
-      case SoundClass.horn: return AppTheme.alertHorn;
-      case SoundClass.siren: return AppTheme.alertSiren;
-      case SoundClass.engine: return AppTheme.alertEngine;
-      case SoundClass.heavyVehicle: return AppTheme.alertHeavy;
-      case SoundClass.background: return AppTheme.alertBackground;
-    }
   }
 
   Widget _buildRecentDetections() {
@@ -620,6 +832,85 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         else
           ...(_recentEvents.take(5).map((e) => _DetectionTile(event: e))),
       ],
+    );
+  }
+}
+
+class _ModePill extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final String subtitle;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _ModePill({
+    required this.label,
+    required this.icon,
+    required this.subtitle,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: isSelected ? color.withOpacity(0.14) : Colors.transparent,
+            border: isSelected
+                ? Border.all(color: color.withOpacity(0.45), width: 1.5)
+                : null,
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: isSelected
+                      ? color.withOpacity(0.2)
+                      : AppTheme.surfaceElevated,
+                ),
+                child: Icon(icon,
+                    color: isSelected ? color : AppTheme.textMuted, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                          color: isSelected ? color : AppTheme.textSecondary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        )),
+                    Text(subtitle,
+                        style: TextStyle(
+                          color: isSelected
+                              ? color.withOpacity(0.65)
+                              : AppTheme.textMuted,
+                          fontSize: 10,
+                        ),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(Icons.check_circle_rounded, color: color, size: 16),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
