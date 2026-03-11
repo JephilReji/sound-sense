@@ -140,51 +140,68 @@ void onStart(ServiceInstance service) async {
     );
 
     stream.listen((data) {
-      final Int16List audioData = Int16List.view(data.buffer);
-      final int length = audioData.length;
+      // 1. SAFELY read only the fresh audio frame, completely ignoring garbage memory
+      final int length = data.length ~/ 2;
+      final ByteData byteData = ByteData.sublistView(data);
       
       double sumSquares = 0.0;
       final Float32List floatInput = Float32List(length);
       
       for (int i = 0; i < length; i++) {
-        final double sample = audioData[i].toDouble();
-        sumSquares += sample * sample;
-        floatInput[i] = sample / 32768.0;
+        // Read 16-bit PCM accurately based on system architecture
+        final double sample = byteData.getInt16(i * 2, Endian.little).toDouble();
+        final double normalizedSample = sample / 32768.0;
+        sumSquares += normalizedSample * normalizedSample;
+        floatInput[i] = normalizedSample;
       }
       
       final double rms = sqrt(sumSquares / length);
       double calculatedDb = 0.0;
       
-      if (rms > 0) {
-        calculatedDb = 20 * (log(rms) / ln10) + 30.0;
+      // 2. Realistic SPL Math: Quiet room ~40dB, Speaking ~70dB
+      if (rms > 0.00001) { 
+        double dbfs = 20 * (log(rms) / ln10); // Usually between -80 (quiet) and 0 (loud)
+        calculatedDb = dbfs + 95.0; // Push it up to human-readable SPL ranges
         calculatedDb = calculatedDb.clamp(0.0, 120.0);
       }
 
-      var input = [floatInput];
-      var output = List.filled(1 * labels.length, 0.0).reshape([1, labels.length]);
-
-      interpreter.run(input, output);
-
-      double maxProb = 0.0; 
-      int maxIdx = -1;
-      
-      for (int i = 0; i < labels.length; i++) {
-        if (output[0][i] > maxProb) {
-          maxProb = output[0][i];
-          maxIdx = i;
-        }
-      }
-
-      String detectedClass = maxIdx != -1 ? labels[maxIdx] : "Listening...";
-
       service.invoke('update', {
-        'class': detectedClass,
+        'class': "Listening...",
         'db': calculatedDb,
-        'confidence': maxProb,
+        'confidence': 0.0,
       });
 
-      if (maxProb > 0.80 && (detectedClass == "Siren" || detectedClass == "Fire Alarm")) {
-        triggerFullScreenAlert(detectedClass);
+      try {
+        var input = [floatInput];
+        var output = List.filled(1 * labels.length, 0.0).reshape([1, labels.length]);
+
+        interpreter.run(input, output);
+
+        double maxProb = 0.0; 
+        int maxIdx = -1;
+        
+        for (int i = 0; i < labels.length; i++) {
+          if (output[0][i] > maxProb) {
+            maxProb = output[0][i];
+            maxIdx = i;
+          }
+        }
+
+        if (maxIdx != -1 && maxProb > 0.50) {
+          String detectedClass = labels[maxIdx];
+          
+          service.invoke('update', {
+            'class': detectedClass,
+            'db': calculatedDb, // Now accurately synced with the AI
+            'confidence': maxProb,
+          });
+
+          if (maxProb > 0.80 && (detectedClass == "Siren" || detectedClass == "Fire Alarm")) {
+            triggerFullScreenAlert(detectedClass);
+          }
+        }
+      } catch (e) {
+        print("TFLite calculation skipped: $e");
       }
     });
   } catch (e) {

@@ -15,13 +15,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   StreamSubscription<Map<String, dynamic>?>? _sub;
-
   late AnimationController _pulseCtrl;
-
   bool _isListening = false;
   double _currentDb = 0;
   final List<SoundEvent> _recentEvents = [];
-
   bool _isNormalMode = true;
 
   @override
@@ -41,6 +38,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final label = data['class'] as String;
       final db = (data['db'] as num).toDouble();
       final confidence = (data['confidence'] as num).toDouble();
+
+      setState(() {
+        _currentDb = db;
+      });
 
       SoundClass? sClass;
       if (label == 'Siren') {
@@ -83,7 +84,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         : event.isDangerous && (event.soundClass == SoundClass.siren || event.soundClass == SoundClass.safetyAlarm);
 
     setState(() {
-      _currentDb = event.decibels;
       if (_isNormalMode || event.soundClass == SoundClass.siren || event.soundClass == SoundClass.safetyAlarm) {
         _recentEvents.insert(0, event);
         if (_recentEvents.length > 5) _recentEvents.removeLast();
@@ -477,7 +477,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                 ),
               ),
-
             Container(
               width: 140,
               height: 140,
@@ -582,7 +581,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   color: AppTheme.surfaceElevated,
                 ),
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 600),
+                  duration: const Duration(milliseconds: 100),
                   curve: Curves.easeOut,
                   height: 12,
                   width: MediaQuery.of(context).size.width * 0.85 * (_isListening ? normalized : 0),
