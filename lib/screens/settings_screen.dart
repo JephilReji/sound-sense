@@ -18,11 +18,15 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _panicMode = true;
   double _sensitivity = 0.65;
   double _panicThreshold = 100.0;
+  // Pending slider values (before user confirms)
+  double _pendingSensitivity = 0.65;
+  double _pendingPanicThreshold = 100.0;
+  bool _sensitivitySaved = false;
+  bool _panicThresholdSaved = false;
   bool _hornEnabled = true;
   bool _sirenEnabled = true;
-  bool _engineEnabled = true;
+  bool _safetyAlarmEnabled = true;
   bool _heavyEnabled = true;
-  bool _bgEnabled = false;
 
   @override
   void initState() {
@@ -154,7 +158,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       color: AppTheme.accent.withOpacity(0.15),
                     ),
                     child: Text(
-                      '${(_sensitivity * 100).toStringAsFixed(0)}%',
+                      '${(_pendingSensitivity * 100).toStringAsFixed(0)}%',
                       style: const TextStyle(
                         color: AppTheme.accent,
                         fontSize: 13,
@@ -180,10 +184,24 @@ class _SettingsScreenState extends State<SettingsScreen>
                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
                 ),
                 child: Slider(
-                  value: _sensitivity,
+                  value: _pendingSensitivity,
                   min: 0.4,
                   max: 0.95,
-                  onChanged: (v) => setState(() => _sensitivity = v),
+                  onChanged: (v) => setState(() {
+                    _pendingSensitivity = v;
+                    _sensitivitySaved = false;
+                  }),
+                  onChangeEnd: (v) => _confirmSlider(
+                    label: 'Detection Threshold',
+                    displayValue: '${(v * 100).toStringAsFixed(0)}%',
+                    onConfirm: () => setState(() {
+                      _sensitivity = v;
+                      _sensitivitySaved = true;
+                    }),
+                    onCancel: () => setState(() {
+                      _pendingSensitivity = _sensitivity;
+                    }),
+                  ),
                 ),
               ),
               Row(
@@ -193,6 +211,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                   Text('Strict', style: TextStyle(color: AppTheme.textMuted, fontSize: 11)),
                 ],
               ),
+              if (_sensitivitySaved) ...[
+                const SizedBox(height: 8),
+                _savedIndicator(),
+              ],
             ],
           ),
         ),
@@ -204,9 +226,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     final classes = [
       {'emoji': '📯', 'title': 'Vehicle Horns', 'subtitle': 'Loud, close-range honking', 'sc': SoundClass.horn},
       {'emoji': '🚨', 'title': 'Emergency Sirens', 'subtitle': 'Ambulance, police, fire', 'sc': SoundClass.siren},
-      {'emoji': '⚙️', 'title': 'Engine Revving', 'subtitle': 'High-rev motorcycle/car', 'sc': SoundClass.engine},
+      {'emoji': '🔔', 'title': 'Safety Alarms', 'subtitle': 'Fire alarms & danger alerts', 'sc': SoundClass.safetyAlarm},
       {'emoji': '🚛', 'title': 'Heavy Vehicles', 'subtitle': 'Trucks, buses, lorries', 'sc': SoundClass.heavyVehicle},
-      {'emoji': '🔈', 'title': 'Background Noise', 'subtitle': 'General traffic ambience', 'sc': SoundClass.background},
     ];
 
     return _SettingsCard(
@@ -235,22 +256,20 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   bool _getEnabled(SoundClass sc) {
     switch (sc) {
-      case SoundClass.horn: return _hornEnabled;
-      case SoundClass.siren: return _sirenEnabled;
-      case SoundClass.engine: return _engineEnabled;
-      case SoundClass.heavyVehicle: return _heavyEnabled;
-      case SoundClass.background: return _bgEnabled;
+      case SoundClass.horn:        return _hornEnabled;
+      case SoundClass.siren:       return _sirenEnabled;
+      case SoundClass.safetyAlarm: return _safetyAlarmEnabled;
+      case SoundClass.heavyVehicle:return _heavyEnabled;
     }
   }
 
   void _setEnabled(SoundClass sc, bool v) {
     setState(() {
       switch (sc) {
-        case SoundClass.horn: _hornEnabled = v; break;
-        case SoundClass.siren: _sirenEnabled = v; break;
-        case SoundClass.engine: _engineEnabled = v; break;
-        case SoundClass.heavyVehicle: _heavyEnabled = v; break;
-        case SoundClass.background: _bgEnabled = v; break;
+        case SoundClass.horn:        _hornEnabled = v; break;
+        case SoundClass.siren:       _sirenEnabled = v; break;
+        case SoundClass.safetyAlarm: _safetyAlarmEnabled = v; break;
+        case SoundClass.heavyVehicle:_heavyEnabled = v; break;
       }
     });
   }
@@ -290,7 +309,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       color: AppTheme.alertSiren.withOpacity(0.15),
                     ),
                     child: Text(
-                      '${_panicThreshold.toStringAsFixed(0)} dB',
+                      '${_pendingPanicThreshold.toStringAsFixed(0)} dB',
                       style: const TextStyle(
                         color: AppTheme.alertSiren,
                         fontSize: 13,
@@ -316,10 +335,28 @@ class _SettingsScreenState extends State<SettingsScreen>
                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
                 ),
                 child: Slider(
-                  value: _panicThreshold,
+                  value: _pendingPanicThreshold,
                   min: 85,
                   max: 115,
-                  onChanged: _panicMode ? (v) => setState(() => _panicThreshold = v) : null,
+                  onChanged: _panicMode
+                      ? (v) => setState(() {
+                            _pendingPanicThreshold = v;
+                            _panicThresholdSaved = false;
+                          })
+                      : null,
+                  onChangeEnd: _panicMode
+                      ? (v) => _confirmSlider(
+                            label: 'Panic Threshold',
+                            displayValue: '${v.toStringAsFixed(0)} dB',
+                            onConfirm: () => setState(() {
+                              _panicThreshold = v;
+                              _panicThresholdSaved = true;
+                            }),
+                            onCancel: () => setState(() {
+                              _pendingPanicThreshold = _panicThreshold;
+                            }),
+                          )
+                      : null,
                 ),
               ),
               Row(
@@ -329,6 +366,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                   Text('115 dB', style: TextStyle(color: AppTheme.textMuted, fontSize: 11)),
                 ],
               ),
+              if (_panicThresholdSaved) ...[
+                const SizedBox(height: 8),
+                _savedIndicator(),
+              ],
             ],
           ),
         ),
@@ -338,11 +379,10 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Widget _buildColorGuideCard() {
     final guide = [
-      {'color': AppTheme.alertSiren, 'emoji': '🚨', 'label': 'Emergency Siren', 'shade': 'Bright Red'},
-      {'color': AppTheme.alertHorn, 'emoji': '📯', 'label': 'Vehicle Horn', 'shade': 'Orange'},
-      {'color': AppTheme.alertHeavy, 'emoji': '🚛', 'label': 'Heavy Vehicle', 'shade': 'Deep Orange'},
-      {'color': AppTheme.alertEngine, 'emoji': '⚙️', 'label': 'Engine Rev', 'shade': 'Amber'},
-      {'color': AppTheme.alertBackground, 'emoji': '🔈', 'label': 'Background', 'shade': 'Green'},
+      {'color': AppTheme.alertSiren,       'emoji': '🚨', 'label': 'Emergency Siren', 'shade': 'Blue'},
+      {'color': AppTheme.alertHorn,        'emoji': '📯', 'label': 'Vehicle Horn',     'shade': 'Orange'},
+      {'color': AppTheme.alertHeavy,       'emoji': '🚛', 'label': 'Heavy Vehicle',    'shade': 'Green'},
+      {'color': AppTheme.alertSafetyAlarm, 'emoji': '🔔', 'label': 'Safety Alarm',     'shade': 'Red'},
     ];
 
     return _SettingsCard(
@@ -354,37 +394,187 @@ class _SettingsScreenState extends State<SettingsScreen>
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, height: 1.5),
           ),
         ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: guide.map((g) {
+        Column(
+          children: guide.asMap().entries.map((entry) {
+            final i = entry.key;
+            final g = entry.value;
             final col = g['color'] as Color;
-            return Container(
-              width: (MediaQuery.of(context).size.width - 80) / 2 - 4,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: col.withOpacity(0.1),
-                border: Border.all(color: col.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Text(g['emoji'] as String, style: const TextStyle(fontSize: 18)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(g['label'] as String, style: TextStyle(color: col, fontSize: 11, fontWeight: FontWeight.w700)),
-                        Text(g['shade'] as String, style: const TextStyle(color: AppTheme.textMuted, fontSize: 10)),
-                      ],
-                    ),
+            return Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: col.withOpacity(0.08),
+                    border: Border.all(color: col.withOpacity(0.25)),
                   ),
-                  Container(width: 12, height: 12, decoration: BoxDecoration(shape: BoxShape.circle, color: col)),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      Text(g['emoji'] as String, style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(g['label'] as String,
+                                style: TextStyle(
+                                    color: col,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700)),
+                            Text(g['shade'] as String,
+                                style: const TextStyle(
+                                    color: AppTheme.textMuted, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: col,
+                          boxShadow: [
+                            BoxShadow(color: col.withOpacity(0.4), blurRadius: 8)
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (i < guide.length - 1) const SizedBox(height: 8),
+              ],
             );
           }).toList(),
+        ),
+      ],
+    );
+  }
+
+  void _confirmSlider({
+    required String label,
+    required String displayValue,
+    required VoidCallback onConfirm,
+    required VoidCallback onCancel,
+  }) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (_) => Dialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.accent.withOpacity(0.12),
+                ),
+                child: const Icon(Icons.save_rounded,
+                    color: AppTheme.accent, size: 26),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Save $label?',
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Apply $label at $displayValue?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        onCancel();
+                      },
+                      child: Container(
+                        height: 46,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: AppTheme.surfaceElevated,
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        child: const Center(
+                          child: Text('Cancel',
+                              style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        onConfirm();
+                      },
+                      child: Container(
+                        height: 46,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF1A6DFF), Color(0xFF0830A0)],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.accent.withOpacity(0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Text('Save',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  //Geständnis vom 17. März
+  Widget _savedIndicator() {
+    return Row(
+      children: [
+        const Icon(Icons.check_circle_rounded,
+            color: Color(0xFF00EAAA), size: 15),
+        const SizedBox(width: 6),
+        const Text(
+          'Saved successfully',
+          style: TextStyle(
+            color: Color(0xFF00EAAA),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );

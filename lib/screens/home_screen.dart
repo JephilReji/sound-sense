@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../models/mock_detection_service.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import '../models/sound_event.dart';
 import '../theme/app_theme.dart';
 import 'alert_screen.dart';
@@ -14,8 +14,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  final MockDetectionService _service = MockDetectionService();
-  StreamSubscription<SoundEvent>? _sub;
+  StreamSubscription<Map<String, dynamic>?>? _sub;
 
   late AnimationController _pulseCtrl;
 
@@ -23,27 +22,75 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   double _currentDb = 0;
   final List<SoundEvent> _recentEvents = [];
 
+  bool _isNormalMode = true;
+
   @override
   void initState() {
     super.initState();
+
+    _syncServiceState();
 
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
 
-    _sub = _service.eventStream.listen(_onEvent);
+    _sub = FlutterBackgroundService().on('update').listen((data) {
+      if (data == null || !mounted) return;
+
+      final label = data['class'] as String;
+      final db = (data['db'] as num).toDouble();
+      final confidence = (data['confidence'] as num).toDouble();
+
+      SoundClass? sClass;
+      if (label == 'Siren') {
+        sClass = SoundClass.siren;
+      } else if (label == 'Fire Alarm') {
+        sClass = SoundClass.safetyAlarm;
+      } else if (label == 'Horn') {
+        sClass = SoundClass.horn;
+      } else if (label == 'Heavy Vehicle') {
+        sClass = SoundClass.heavyVehicle;
+      }
+
+      if (sClass == null) return;
+
+      final event = SoundEvent(
+        soundClass: sClass,
+        confidence: confidence,
+        decibels: db,
+        timestamp: DateTime.now(),
+      );
+
+      _onEvent(event);
+    });
+  }
+
+  Future<void> _syncServiceState() async {
+    final isRunning = await FlutterBackgroundService().isRunning();
+    if (mounted) {
+      setState(() {
+        _isListening = isRunning;
+      });
+    }
   }
 
   void _onEvent(SoundEvent event) {
     if (!mounted) return;
+
+    final bool shouldAlert = _isNormalMode
+        ? event.isDangerous
+        : event.isDangerous && (event.soundClass == SoundClass.siren || event.soundClass == SoundClass.safetyAlarm);
+
     setState(() {
       _currentDb = event.decibels;
-      _recentEvents.insert(0, event);
-      if (_recentEvents.length > 5) _recentEvents.removeLast();
+      if (_isNormalMode || event.soundClass == SoundClass.siren || event.soundClass == SoundClass.safetyAlarm) {
+        _recentEvents.insert(0, event);
+        if (_recentEvents.length > 5) _recentEvents.removeLast();
+      }
     });
 
-    if (event.isDangerous) {
+    if (shouldAlert) {
       Navigator.of(context).push(
         PageRouteBuilder(
           pageBuilder: (_, __, ___) => AlertScreen(event: event),
@@ -57,11 +104,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _toggleListening() {
     if (_isListening) {
-      // Show confirmation before stopping — safety-critical friction
       _showStopConfirmation();
     } else {
       setState(() => _isListening = true);
-      _service.start();
+      FlutterBackgroundService().startService();
     }
   }
 
@@ -145,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     child: GestureDetector(
                       onTap: () {
                         Navigator.pop(context);
-                        _service.stop();
+                        FlutterBackgroundService().invoke('stopService');
                         setState(() {
                           _isListening = false;
                           _currentDb = 0;
@@ -185,7 +231,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _sub?.cancel();
-    _service.dispose();
     _pulseCtrl.dispose();
     super.dispose();
   }
@@ -402,7 +447,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Outer ring glow
             if (_isListening)
               AnimatedBuilder(
                 animation: _pulseCtrl,
@@ -434,7 +478,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-            // Main button
             Container(
               width: 140,
               height: 140,
@@ -583,9 +626,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Current detection mode — in a real app this would come from AppState
-  bool _isNormalMode = true;
-
   void _showModeConfirmation(bool switchToNormal) {
     final newLabel = switchToNormal ? 'Normal Mode' : 'Indoor Mode';
     final newIcon  = switchToNormal ? Icons.traffic_rounded : Icons.home_rounded;
@@ -633,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
+              const Text(
                 'Changing mode alters which sounds the AI monitors. Only switch if your environment has changed.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -1092,7 +1132,6 @@ class _BgPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Subtle top gradient orb
     final paint = Paint()
       ..shader = RadialGradient(
         colors: [
@@ -1104,7 +1143,6 @@ class _BgPainter extends CustomPainter {
       );
     canvas.drawCircle(Offset(size.width * 0.8, 80), 200, paint);
 
-    // Bottom orb
     final paint2 = Paint()
       ..shader = RadialGradient(
         colors: [

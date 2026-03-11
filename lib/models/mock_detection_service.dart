@@ -19,8 +19,6 @@ class MockDetectionService {
     if (_isRunning) return;
     _isRunning = true;
     _controller ??= StreamController<SoundEvent>.broadcast();
-
-    // Emit events at random intervals between 2-6 seconds
     _scheduleNext();
   }
 
@@ -38,30 +36,26 @@ class MockDetectionService {
     double confidence;
     double db;
 
-    // Weighted probability for Indian roads
-    if (roll < 0.35) {
+    // Weighted probability for Indian roads (4 classes now)
+    if (roll < 0.40) {
       sc = SoundClass.horn;
       confidence = 0.72 + _random.nextDouble() * 0.25;
       db = 80 + _random.nextDouble() * 20;
-    } else if (roll < 0.50) {
-      sc = SoundClass.background;
-      confidence = 0.80 + _random.nextDouble() * 0.15;
-      db = 55 + _random.nextDouble() * 15;
     } else if (roll < 0.65) {
-      sc = SoundClass.engine;
-      confidence = 0.65 + _random.nextDouble() * 0.25;
-      db = 75 + _random.nextDouble() * 15;
-    } else if (roll < 0.80) {
       sc = SoundClass.heavyVehicle;
       confidence = 0.70 + _random.nextDouble() * 0.25;
       db = 85 + _random.nextDouble() * 15;
-    } else {
+    } else if (roll < 0.85) {
       sc = SoundClass.siren;
       confidence = 0.85 + _random.nextDouble() * 0.14;
       db = 90 + _random.nextDouble() * 15;
+    } else {
+      sc = SoundClass.safetyAlarm;
+      confidence = 0.80 + _random.nextDouble() * 0.18;
+      db = 88 + _random.nextDouble() * 15;
     }
 
-    final isPanic = db > 100 && sc != SoundClass.background;
+    final isPanic = db > 100;
 
     final event = SoundEvent(
       soundClass: sc,

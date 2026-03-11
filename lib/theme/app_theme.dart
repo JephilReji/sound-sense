@@ -15,12 +15,12 @@ class AppTheme {
   static const Color border = Color(0xFF162040);
   static const Color borderGlow = Color(0xFF1A4080);
 
-  // Alert colors
-  static const Color alertHorn = Color(0xFFFF6B00);
-  static const Color alertSiren = Color(0xFFFF2244);
-  static const Color alertEngine = Color(0xFFFFBB00);
-  static const Color alertHeavy = Color(0xFFFF4400);
-  static const Color alertBackground = Color(0xFF00CC66);
+  // Alert colors — each visually distinct
+  static const Color alertHorn        = Color(0xFFFF6B00); // Orange
+  static const Color alertSiren       = Color(0xFF1A6DFF); // Blue
+  static const Color alertSafetyAlarm = Color(0xFFFF2244); // Red
+  static const Color alertHeavy       = Color(0xFF00CC66); // Green
+  static const Color alertBackground  = Color(0xFF00CC66); // Green (unused)
 
   static ThemeData get darkTheme {
     return ThemeData(

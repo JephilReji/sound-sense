@@ -1,22 +1,35 @@
-name: safesound
-description: SafeSound - Assistive Safety App for Deaf and Hard of Hearing Users
-
+name: sound_sense_app
+description: "A new Flutter project."
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ^3.10.8
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.5
+  flutter_background_service: ^5.1.0
+  flutter_local_notifications: ^20.1.0
+  permission_handler: ^12.0.1
+  cupertino_icons: ^1.0.8
+  tflite_flutter: ^0.12.1 
+  record: ^5.1.0
+  path_provider: ^2.1.2
+  provider: ^6.1.5+1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/models/labels.txt
+    - assets/models/soundclassifier_with_metadata.tflite
+
+dependency_overrides:
+  record_linux: any
+  record_windows: any
+  record_macos: any
