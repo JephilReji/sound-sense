@@ -5,12 +5,13 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'screens/splash_screen.dart';
+import 'screens/main_shell.dart';
 import 'theme/app_theme.dart';
 
 final AndroidNotificationChannel silentChannel = AndroidNotificationChannel(
@@ -43,7 +44,15 @@ Future<void> main() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const SoundSenseApp());
+
+  final prefs = await SharedPreferences.getInstance();
+  final bool isFirstLaunch = prefs.getBool('isFirstLaunch') ?? true;
+  
+  if (isFirstLaunch) {
+    await prefs.setBool('isFirstLaunch', false);
+  }
+
+  runApp(SoundSenseApp(isFirstLaunch: isFirstLaunch));
 }
 
 Future<void> requestPermissions() async {
@@ -110,27 +119,21 @@ void onStart(ServiceInstance service) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (service is AndroidServiceInstance) {
-    service.on('setAsForeground').listen((event) {
-      service.setAsForegroundService();
-    });
-    service.on('setAsBackground').listen((event) {
-      service.setAsBackgroundService();
-    });
+    service.on('setAsForeground').listen((event) => service.setAsForegroundService());
+    service.on('setAsBackground').listen((event) => service.setAsBackgroundService());
   }
 
-  service.on('stopService').listen((event) {
-    service.stopSelf();
-  });
+  service.on('stopService').listen((event) => service.stopSelf());
 
   try {
     final interpreter = await Interpreter.fromAsset('assets/models/soundclassifier_with_metadata.tflite');
     final labelsData = await rootBundle.loadString('assets/models/labels.txt');
     final labels = labelsData.split('\n').where((s) => s.isNotEmpty).toList();
 
+    final inputShape = interpreter.getInputTensor(0).shape;
+    final requiredInputSize = inputShape.length > 1 ? inputShape[1] : 15600;
+
     final record = AudioRecorder();
-    
-    // BYPASS: We completely removed `if (await record.hasPermission())`
-    // because checking for permissions without a UI crashes the background isolate.
     final stream = await record.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
@@ -139,29 +142,27 @@ void onStart(ServiceInstance service) async {
       ),
     );
 
+    List<double> audioBuffer = [];
+
     stream.listen((data) {
-      // 1. SAFELY read only the fresh audio frame, completely ignoring garbage memory
       final int length = data.length ~/ 2;
       final ByteData byteData = ByteData.sublistView(data);
       
       double sumSquares = 0.0;
-      final Float32List floatInput = Float32List(length);
       
       for (int i = 0; i < length; i++) {
-        // Read 16-bit PCM accurately based on system architecture
         final double sample = byteData.getInt16(i * 2, Endian.little).toDouble();
         final double normalizedSample = sample / 32768.0;
         sumSquares += normalizedSample * normalizedSample;
-        floatInput[i] = normalizedSample;
+        audioBuffer.add(normalizedSample);
       }
       
       final double rms = sqrt(sumSquares / length);
       double calculatedDb = 0.0;
       
-      // 2. Realistic SPL Math: Quiet room ~40dB, Speaking ~70dB
       if (rms > 0.00001) { 
-        double dbfs = 20 * (log(rms) / ln10); // Usually between -80 (quiet) and 0 (loud)
-        calculatedDb = dbfs + 95.0; // Push it up to human-readable SPL ranges
+        double dbfs = 20 * (log(rms) / ln10);
+        calculatedDb = dbfs + 95.0; 
         calculatedDb = calculatedDb.clamp(0.0, 120.0);
       }
 
@@ -171,47 +172,70 @@ void onStart(ServiceInstance service) async {
         'confidence': 0.0,
       });
 
-      try {
-        var input = [floatInput];
-        var output = List.filled(1 * labels.length, 0.0).reshape([1, labels.length]);
-
-        interpreter.run(input, output);
-
-        double maxProb = 0.0; 
-        int maxIdx = -1;
+      if (audioBuffer.length >= requiredInputSize) {
+        var inputList = audioBuffer.sublist(audioBuffer.length - requiredInputSize);
+        var input = [inputList];
         
-        for (int i = 0; i < labels.length; i++) {
-          if (output[0][i] > maxProb) {
-            maxProb = output[0][i];
-            maxIdx = i;
+        try {
+          var output = List.filled(labels.length, 0.0).reshape([1, labels.length]);
+          interpreter.run(input, output);
+
+          double maxProb = 0.0; 
+          int maxIdx = -1;
+          for (int i = 0; i < labels.length; i++) {
+            if (output[0][i] > maxProb) {
+              maxProb = output[0][i];
+              maxIdx = i;
+            }
           }
+
+          if (maxIdx != -1) {
+            String currentGuess = labels[maxIdx];
+            debugPrint("AI: $currentGuess | Conf: ${(maxProb * 100).toStringAsFixed(1)}% | dB: $calculatedDb");
+          }
+
+          if (maxIdx != -1 && maxProb > 0.45) {
+            String detectedLabel = labels[maxIdx];
+            
+            service.invoke('update', {
+              'class': detectedLabel,
+              'db': calculatedDb,
+              'confidence': maxProb,
+            });
+
+            String labelLower = detectedLabel.toLowerCase();
+            bool isEmergency = labelLower.contains("siren") || 
+                               labelLower.contains("alarm") || 
+                               labelLower.contains("horn");
+            
+            if (isEmergency && calculatedDb > 70.0) {
+              service.invoke('emergency_alert', {
+                'class': detectedLabel,
+                'db': calculatedDb,
+                'confidence': maxProb,
+              });
+              
+              if (maxProb > 0.75) {
+                triggerFullScreenAlert(detectedLabel);
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint(e.toString());
         }
 
-        if (maxIdx != -1 && maxProb > 0.50) {
-          String detectedClass = labels[maxIdx];
-          
-          service.invoke('update', {
-            'class': detectedClass,
-            'db': calculatedDb, // Now accurately synced with the AI
-            'confidence': maxProb,
-          });
-
-          if (maxProb > 0.80 && (detectedClass == "Siren" || detectedClass == "Fire Alarm")) {
-            triggerFullScreenAlert(detectedClass);
-          }
-        }
-      } catch (e) {
-        print("TFLite calculation skipped: $e");
+        audioBuffer.removeRange(0, audioBuffer.length - (requiredInputSize ~/ 2));
       }
     });
   } catch (e) {
-    print("AI Engine Crash Prevented: $e");
-    // This catches the crash so your notification and service stay alive!
+    debugPrint(e.toString());
   }
 }
 
 class SoundSenseApp extends StatelessWidget {
-  const SoundSenseApp({super.key});
+  final bool isFirstLaunch;
+  
+  const SoundSenseApp({super.key, required this.isFirstLaunch});
 
   @override
   Widget build(BuildContext context) {
@@ -219,7 +243,7 @@ class SoundSenseApp extends StatelessWidget {
       title: 'SoundSense',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const SplashScreen(),
-    );
+      home: isFirstLaunch ? const SplashScreen() : const MainShell(),   
+       );
   }
 }

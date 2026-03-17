@@ -44,26 +44,91 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       });
 
       SoundClass? sClass;
-      if (label == 'Siren') {
+      String labelLower = label.toLowerCase();
+
+      if (labelLower.contains('siren')) {
         sClass = SoundClass.siren;
-      } else if (label == 'Fire Alarm') {
+      } else if (labelLower.contains('alarm')) {
         sClass = SoundClass.safetyAlarm;
-      } else if (label == 'Horn') {
+      } else if (labelLower.contains('horn')) {
         sClass = SoundClass.horn;
-      } else if (label == 'Heavy Vehicle') {
+      } else if (labelLower.contains('engine') || labelLower.contains('heavy')) {
         sClass = SoundClass.heavyVehicle;
       }
 
-      if (sClass == null) return;
+      if (sClass != null) {
+        final event = SoundEvent(
+          soundClass: sClass,
+          confidence: confidence,
+          decibels: db,
+          timestamp: DateTime.now(),
+        );
+        _updateRecentEvents(event);
+      }
+    });
+
+    FlutterBackgroundService().on('emergency_alert').listen((data) {
+      if (data == null || !mounted) return;
+      
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+
+      final label = data['class'] as String;
+      final db = (data['db'] as num).toDouble();
+      final confidence = (data['confidence'] as num).toDouble();
+
+      SoundClass sClass = SoundClass.horn;
+      String labelLower = label.toLowerCase();
+      
+      if (labelLower.contains('siren')) sClass = SoundClass.siren;
+      if (labelLower.contains('alarm')) sClass = SoundClass.safetyAlarm;
 
       final event = SoundEvent(
         soundClass: sClass,
         confidence: confidence,
         decibels: db,
         timestamp: DateTime.now(),
+        isPanic: true,
       );
 
-      _onEvent(event);
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => AlertScreen(event: event),
+          transitionDuration: const Duration(milliseconds: 300),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+        ),
+      );
+    });
+
+    FlutterBackgroundService().on('emergency_alert').listen((data) {
+      if (data == null || !mounted) return;
+      
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+
+      final label = data['class'] as String;
+      final db = (data['db'] as num).toDouble();
+      final confidence = (data['confidence'] as num).toDouble();
+
+      SoundClass sClass = SoundClass.horn;
+      if (label == 'Siren') sClass = SoundClass.siren;
+      if (label == 'Fire Alarm') sClass = SoundClass.safetyAlarm;
+
+      final event = SoundEvent(
+        soundClass: sClass,
+        confidence: confidence,
+        decibels: db,
+        timestamp: DateTime.now(),
+        isPanic: true,
+      );
+
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => AlertScreen(event: event),
+          transitionDuration: const Duration(milliseconds: 300),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+        ),
+      );
     });
   }
 
@@ -76,12 +141,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _onEvent(SoundEvent event) {
+  void _updateRecentEvents(SoundEvent event) {
     if (!mounted) return;
-
-    final bool shouldAlert = _isNormalMode
-        ? event.isDangerous
-        : event.isDangerous && (event.soundClass == SoundClass.siren || event.soundClass == SoundClass.safetyAlarm);
 
     setState(() {
       if (_isNormalMode || event.soundClass == SoundClass.siren || event.soundClass == SoundClass.safetyAlarm) {
@@ -89,17 +150,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (_recentEvents.length > 5) _recentEvents.removeLast();
       }
     });
-
-    if (shouldAlert) {
-      Navigator.of(context).push(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => AlertScreen(event: event),
-          transitionDuration: const Duration(milliseconds: 300),
-          transitionsBuilder: (_, anim, __, child) =>
-              FadeTransition(opacity: anim, child: child),
-        ),
-      );
-    }
   }
 
   void _toggleListening() {
