@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/sound_event.dart';
 import '../theme/app_theme.dart';
 import 'alert_screen.dart';
@@ -24,7 +25,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-
+    
+    _loadModeState();
     _syncServiceState();
 
     _pulseCtrl = AnimationController(
@@ -69,25 +71,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     FlutterBackgroundService().on('emergency_alert').listen((data) {
       if (data == null || !mounted) return;
-      
       if (ModalRoute.of(context)?.isCurrent != true) return;
 
       final label = data['class'] as String;
       final db = (data['db'] as num).toDouble();
       final confidence = (data['confidence'] as num).toDouble();
+      final isPanic = data['isPanic'] as bool? ?? false;
 
       SoundClass sClass = SoundClass.horn;
       String labelLower = label.toLowerCase();
       
       if (labelLower.contains('siren')) sClass = SoundClass.siren;
       if (labelLower.contains('alarm')) sClass = SoundClass.safetyAlarm;
+      if (labelLower.contains('engine') || labelLower.contains('heavy')) sClass = SoundClass.heavyVehicle;
 
       final event = SoundEvent(
         soundClass: sClass,
         confidence: confidence,
         decibels: db,
         timestamp: DateTime.now(),
-        isPanic: true,
+        isPanic: isPanic,
       );
 
       Navigator.of(context).push(
@@ -99,37 +102,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       );
     });
+  }
 
-    FlutterBackgroundService().on('emergency_alert').listen((data) {
-      if (data == null || !mounted) return;
-      
-      if (ModalRoute.of(context)?.isCurrent != true) return;
-
-      final label = data['class'] as String;
-      final db = (data['db'] as num).toDouble();
-      final confidence = (data['confidence'] as num).toDouble();
-
-      SoundClass sClass = SoundClass.horn;
-      if (label == 'Siren') sClass = SoundClass.siren;
-      if (label == 'Fire Alarm') sClass = SoundClass.safetyAlarm;
-
-      final event = SoundEvent(
-        soundClass: sClass,
-        confidence: confidence,
-        decibels: db,
-        timestamp: DateTime.now(),
-        isPanic: true,
-      );
-
-      Navigator.of(context).push(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => AlertScreen(event: event),
-          transitionDuration: const Duration(milliseconds: 300),
-          transitionsBuilder: (_, anim, __, child) =>
-              FadeTransition(opacity: anim, child: child),
-        ),
-      );
-    });
+  Future<void> _loadModeState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _isNormalMode = prefs.getBool('isNormalMode') ?? true;
+      });
+    }
   }
 
   Future<void> _syncServiceState() async {
@@ -757,8 +738,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   const SizedBox(width: 12),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
+                      onTap: () async {
                         Navigator.pop(context);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('isNormalMode', switchToNormal);
                         setState(() => _isNormalMode = switchToNormal);
                       },
                       child: Container(

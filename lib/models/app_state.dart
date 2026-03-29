@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum DetectionMode { normal, indoor }
 
@@ -27,32 +29,78 @@ class EmergencyContact {
       relation: relation ?? this.relation,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'phone': phone,
+        'relation': relation,
+      };
+
+  factory EmergencyContact.fromJson(Map<String, dynamic> json) =>
+      EmergencyContact(
+        id: json['id'],
+        name: json['name'],
+        phone: json['phone'],
+        relation: json['relation'],
+      );
 }
 
 class AppState extends ChangeNotifier {
-  // Profile
   String userName = 'Your Name';
   String userPhone = '';
   bool locationEnabled = false;
   String currentLocation = 'Chennai, Tamil Nadu';
 
-  // Detection Mode
   DetectionMode detectionMode = DetectionMode.normal;
 
-  // Alert dismiss timeout (seconds)
   int alertDismissTimeout = 30;
 
-  // Emergency contacts
   final List<EmergencyContact> emergencyContacts = [];
+
+  AppState() {
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    userName = prefs.getString('userName') ?? 'Your Name';
+    userPhone = prefs.getString('userPhone') ?? '';
+    locationEnabled = prefs.getBool('locationEnabled') ?? false;
+    alertDismissTimeout = prefs.getInt('alertDismissTimeout') ?? 30;
+
+    final contactsStr = prefs.getStringList('emergencyContacts');
+    if (contactsStr != null) {
+      emergencyContacts.clear();
+      for (var str in contactsStr) {
+        emergencyContacts.add(EmergencyContact.fromJson(jsonDecode(str)));
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> _savePrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userName', userName);
+    await prefs.setString('userPhone', userPhone);
+    await prefs.setBool('locationEnabled', locationEnabled);
+    await prefs.setInt('alertDismissTimeout', alertDismissTimeout);
+
+    final contactsStr =
+        emergencyContacts.map((c) => jsonEncode(c.toJson())).toList();
+    await prefs.setStringList('emergencyContacts', contactsStr);
+  }
 
   void updateProfile({String? name, String? phone}) {
     if (name != null) userName = name;
     if (phone != null) userPhone = phone;
+    _savePrefs();
     notifyListeners();
   }
 
   void toggleLocation() {
     locationEnabled = !locationEnabled;
+    _savePrefs();
     notifyListeners();
   }
 
@@ -63,11 +111,13 @@ class AppState extends ChangeNotifier {
 
   void addContact(EmergencyContact contact) {
     emergencyContacts.add(contact);
+    _savePrefs();
     notifyListeners();
   }
 
   void removeContact(String id) {
     emergencyContacts.removeWhere((c) => c.id == id);
+    _savePrefs();
     notifyListeners();
   }
 
@@ -75,12 +125,14 @@ class AppState extends ChangeNotifier {
     final idx = emergencyContacts.indexWhere((c) => c.id == updated.id);
     if (idx != -1) {
       emergencyContacts[idx] = updated;
+      _savePrefs();
       notifyListeners();
     }
   }
 
   void setAlertTimeout(int seconds) {
     alertDismissTimeout = seconds;
+    _savePrefs();
     notifyListeners();
   }
 
