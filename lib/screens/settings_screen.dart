@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../models/sound_event.dart';
 
@@ -13,12 +14,10 @@ class _SettingsScreenState extends State<SettingsScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _fadeCtrl;
 
-  // Settings state
   bool _notifications = true;
   bool _panicMode = true;
   double _sensitivity = 0.65;
   double _panicThreshold = 100.0;
-  // Pending slider values (before user confirms)
   double _pendingSensitivity = 0.65;
   double _pendingPanicThreshold = 100.0;
   bool _sensitivitySaved = false;
@@ -35,6 +34,33 @@ class _SettingsScreenState extends State<SettingsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     )..forward();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _notifications = prefs.getBool('settings_notifications') ?? true;
+      _panicMode = prefs.getBool('settings_panicMode') ?? true;
+      _sensitivity = prefs.getDouble('settings_sensitivity') ?? 0.65;
+      _pendingSensitivity = _sensitivity;
+      _panicThreshold = prefs.getDouble('settings_panicThreshold') ?? 100.0;
+      _pendingPanicThreshold = _panicThreshold;
+      _hornEnabled = prefs.getBool('settings_horn') ?? true;
+      _sirenEnabled = prefs.getBool('settings_siren') ?? true;
+      _safetyAlarmEnabled = prefs.getBool('settings_safety') ?? true;
+      _heavyEnabled = prefs.getBool('settings_heavy') ?? true;
+    });
+  }
+
+  Future<void> _saveBool(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+
+  Future<void> _saveDouble(String key, double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(key, value);
   }
 
   @override
@@ -61,19 +87,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                     _sectionHeader('ALERT METHODS'),
                     _buildAlertMethodsCard(),
                     const SizedBox(height: 20),
-
                     _sectionHeader('DETECTION SENSITIVITY'),
                     _buildSensitivityCard(),
                     const SizedBox(height: 20),
-
                     _sectionHeader('SOUND CLASSES'),
                     _buildSoundClassesCard(),
                     const SizedBox(height: 20),
-
                     _sectionHeader('PANIC PROTOCOL'),
                     _buildPanicCard(),
                     const SizedBox(height: 20),
-
                     _sectionHeader('ALERT COLOR GUIDE'),
                     _buildColorGuideCard(),
                     const SizedBox(height: 40),
@@ -126,7 +148,10 @@ class _SettingsScreenState extends State<SettingsScreen>
           title: 'Notifications',
           subtitle: 'Show system notification on danger',
           value: _notifications,
-          onChanged: (v) => setState(() => _notifications = v),
+          onChanged: (v) {
+            setState(() => _notifications = v);
+            _saveBool('settings_notifications', v);
+          },
         ),
       ],
     );
@@ -194,10 +219,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChangeEnd: (v) => _confirmSlider(
                     label: 'Detection Threshold',
                     displayValue: '${(v * 100).toStringAsFixed(0)}%',
-                    onConfirm: () => setState(() {
-                      _sensitivity = v;
-                      _sensitivitySaved = true;
-                    }),
+                    onConfirm: () {
+                      setState(() {
+                        _sensitivity = v;
+                        _sensitivitySaved = true;
+                      });
+                      _saveDouble('settings_sensitivity', v);
+                    },
                     onCancel: () => setState(() {
                       _pendingSensitivity = _sensitivity;
                     }),
@@ -256,20 +284,36 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   bool _getEnabled(SoundClass sc) {
     switch (sc) {
-      case SoundClass.horn:        return _hornEnabled;
-      case SoundClass.siren:       return _sirenEnabled;
-      case SoundClass.safetyAlarm: return _safetyAlarmEnabled;
-      case SoundClass.heavyVehicle:return _heavyEnabled;
+      case SoundClass.horn:
+        return _hornEnabled;
+      case SoundClass.siren:
+        return _sirenEnabled;
+      case SoundClass.safetyAlarm:
+        return _safetyAlarmEnabled;
+      case SoundClass.heavyVehicle:
+        return _heavyEnabled;
     }
   }
 
   void _setEnabled(SoundClass sc, bool v) {
     setState(() {
       switch (sc) {
-        case SoundClass.horn:        _hornEnabled = v; break;
-        case SoundClass.siren:       _sirenEnabled = v; break;
-        case SoundClass.safetyAlarm: _safetyAlarmEnabled = v; break;
-        case SoundClass.heavyVehicle:_heavyEnabled = v; break;
+        case SoundClass.horn:
+          _hornEnabled = v;
+          _saveBool('settings_horn', v);
+          break;
+        case SoundClass.siren:
+          _sirenEnabled = v;
+          _saveBool('settings_siren', v);
+          break;
+        case SoundClass.safetyAlarm:
+          _safetyAlarmEnabled = v;
+          _saveBool('settings_safety', v);
+          break;
+        case SoundClass.heavyVehicle:
+          _heavyEnabled = v;
+          _saveBool('settings_heavy', v);
+          break;
       }
     });
   }
@@ -283,7 +327,10 @@ class _SettingsScreenState extends State<SettingsScreen>
           title: 'Panic Protocol',
           subtitle: 'Triggers when sound exceeds panic threshold',
           value: _panicMode,
-          onChanged: (v) => setState(() => _panicMode = v),
+          onChanged: (v) {
+            setState(() => _panicMode = v);
+            _saveBool('settings_panicMode', v);
+          },
         ),
         _divider(),
         Padding(
@@ -348,10 +395,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ? (v) => _confirmSlider(
                             label: 'Panic Threshold',
                             displayValue: '${v.toStringAsFixed(0)} dB',
-                            onConfirm: () => setState(() {
-                              _panicThreshold = v;
-                              _panicThresholdSaved = true;
-                            }),
+                            onConfirm: () {
+                              setState(() {
+                                _panicThreshold = v;
+                                _panicThresholdSaved = true;
+                              });
+                              _saveDouble('settings_panicThreshold', v);
+                            },
                             onCancel: () => setState(() {
                               _pendingPanicThreshold = _panicThreshold;
                             }),
@@ -379,10 +429,10 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Widget _buildColorGuideCard() {
     final guide = [
-      {'color': AppTheme.alertSiren,       'emoji': '🚨', 'label': 'Emergency Siren', 'shade': 'Blue'},
-      {'color': AppTheme.alertHorn,        'emoji': '📯', 'label': 'Vehicle Horn',     'shade': 'Orange'},
-      {'color': AppTheme.alertHeavy,       'emoji': '🚛', 'label': 'Heavy Vehicle',    'shade': 'Green'},
-      {'color': AppTheme.alertSafetyAlarm, 'emoji': '🔔', 'label': 'Safety Alarm',     'shade': 'Red'},
+      {'color': AppTheme.alertSiren, 'emoji': '🚨', 'label': 'Emergency Siren', 'shade': 'Blue'},
+      {'color': AppTheme.alertHorn, 'emoji': '📯', 'label': 'Vehicle Horn', 'shade': 'Orange'},
+      {'color': AppTheme.alertHeavy, 'emoji': '🚛', 'label': 'Heavy Vehicle', 'shade': 'Green'},
+      {'color': AppTheme.alertSafetyAlarm, 'emoji': '🔔', 'label': 'Safety Alarm', 'shade': 'Red'},
     ];
 
     return _SettingsCard(
@@ -561,7 +611,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
-  //Geständnis vom 17. März
+
   Widget _savedIndicator() {
     return Row(
       children: [

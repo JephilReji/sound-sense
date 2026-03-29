@@ -125,6 +125,18 @@ void onStart(ServiceInstance service) async {
 
   service.on('stopService').listen((event) => service.stopSelf());
 
+  double currentSensitivity = 0.65;
+  double currentPanicDb = 100.0;
+  bool isNormalMode = true;
+
+  Timer.periodic(const Duration(seconds: 2), (timer) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    currentSensitivity = prefs.getDouble('settings_sensitivity') ?? 0.65;
+    currentPanicDb = prefs.getDouble('settings_panicThreshold') ?? 100.0;
+    isNormalMode = prefs.getBool('isNormalMode') ?? true;
+  });
+
   try {
     final interpreter = await Interpreter.fromAsset('assets/models/soundclassifier_with_metadata.tflite');
     final labelsData = await rootBundle.loadString('assets/models/labels.txt');
@@ -189,12 +201,7 @@ void onStart(ServiceInstance service) async {
             }
           }
 
-          if (maxIdx != -1) {
-            String currentGuess = labels[maxIdx];
-            debugPrint("AI: $currentGuess | Conf: ${(maxProb * 100).toStringAsFixed(1)}% | dB: $calculatedDb");
-          }
-
-          if (maxIdx != -1 && maxProb > 0.45) {
+          if (maxIdx != -1 && maxProb >= currentSensitivity) {
             String detectedLabel = labels[maxIdx];
             
             service.invoke('update', {
@@ -207,12 +214,15 @@ void onStart(ServiceInstance service) async {
             bool isEmergency = labelLower.contains("siren") || 
                                labelLower.contains("alarm") || 
                                labelLower.contains("horn");
+                               
+            bool isPanic = calculatedDb >= currentPanicDb || (!isNormalMode && labelLower.contains("alarm"));
             
             if (isEmergency && calculatedDb > 70.0) {
               service.invoke('emergency_alert', {
                 'class': detectedLabel,
                 'db': calculatedDb,
                 'confidence': maxProb,
+                'isPanic': isPanic,
               });
               
               if (maxProb > 0.75) {
