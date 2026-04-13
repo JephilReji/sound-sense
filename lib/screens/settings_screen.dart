@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       _panicMode = prefs.getBool('settings_panicMode') ?? true;
       _sensitivity = prefs.getDouble('settings_sensitivity') ?? 0.65;
       _pendingSensitivity = _sensitivity;
-      _panicThreshold = prefs.getDouble('settings_panicThreshold') ?? 100.0;
+      _panicThreshold = (prefs.getDouble('settings_panicThreshold') ?? 100.0).clamp(70.0, 100.0);
       _pendingPanicThreshold = _panicThreshold;
       _hornEnabled = prefs.getBool('settings_horn') ?? true;
       _sirenEnabled = prefs.getBool('settings_siren') ?? true;
@@ -383,8 +383,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 child: Slider(
                   value: _pendingPanicThreshold,
-                  min: 85,
-                  max: 115,
+                  min: 70,
+                  max: 100,
                   onChanged: _panicMode
                       ? (v) => setState(() {
                             _pendingPanicThreshold = v;
@@ -412,8 +412,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: const [
-                  Text('85 dB', style: TextStyle(color: AppTheme.textMuted, fontSize: 11)),
-                  Text('115 dB', style: TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                  Text('70 dB', style: TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                  Text('100 dB', style: TextStyle(color: AppTheme.textMuted, fontSize: 11)),
                 ],
               ),
               if (_panicThresholdSaved) ...[

@@ -1,5 +1,5 @@
 0 Background Noise
-1 Engine_Sample
-2 Heavy_Vehicle
-3 Horn_sample
-4 Siren_Sample
+1 Emergency Sirens
+2 Fire/Safety Alarm
+3 Heavy Vehicles
+4 Vehicle Horn

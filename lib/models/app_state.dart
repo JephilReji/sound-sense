@@ -53,8 +53,13 @@ class AppState extends ChangeNotifier {
   String currentLocation = 'Chennai, Tamil Nadu';
 
   DetectionMode detectionMode = DetectionMode.normal;
-
   int alertDismissTimeout = 30;
+
+  // New Sound Class Preference Flags
+  bool hornEnabled = true;
+  bool sirenEnabled = true;
+  bool safetyAlarmEnabled = true;
+  bool heavyEnabled = true;
 
   final List<EmergencyContact> emergencyContacts = [];
 
@@ -68,6 +73,12 @@ class AppState extends ChangeNotifier {
     userPhone = prefs.getString('userPhone') ?? '';
     locationEnabled = prefs.getBool('locationEnabled') ?? false;
     alertDismissTimeout = prefs.getInt('alertDismissTimeout') ?? 30;
+
+    // Load Sound Preferences
+    hornEnabled = prefs.getBool('settings_horn') ?? true;
+    sirenEnabled = prefs.getBool('settings_siren') ?? true;
+    safetyAlarmEnabled = prefs.getBool('settings_safety') ?? true;
+    heavyEnabled = prefs.getBool('settings_heavy') ?? true;
 
     final contactsStr = prefs.getStringList('emergencyContacts');
     if (contactsStr != null) {
@@ -86,9 +97,26 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('locationEnabled', locationEnabled);
     await prefs.setInt('alertDismissTimeout', alertDismissTimeout);
 
+    // Save Sound Preferences
+    await prefs.setBool('settings_horn', hornEnabled);
+    await prefs.setBool('settings_siren', sirenEnabled);
+    await prefs.setBool('settings_safety', safetyAlarmEnabled);
+    await prefs.setBool('settings_heavy', heavyEnabled);
+
     final contactsStr =
         emergencyContacts.map((c) => jsonEncode(c.toJson())).toList();
     await prefs.setStringList('emergencyContacts', contactsStr);
+  }
+
+  void updateSoundPreference(String key, bool value) {
+    switch (key) {
+      case 'horn': hornEnabled = value; break;
+      case 'siren': sirenEnabled = value; break;
+      case 'safety': safetyAlarmEnabled = value; break;
+      case 'heavy': heavyEnabled = value; break;
+    }
+    _savePrefs();
+    notifyListeners();
   }
 
   void updateProfile({String? name, String? phone}) {
