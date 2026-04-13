@@ -30,7 +30,7 @@ final AndroidNotificationChannel alertChannel = AndroidNotificationChannel(
   enableVibration: true,
 );
 
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = 
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 Future<void> main() async {
@@ -47,7 +47,7 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
   final bool isFirstLaunch = prefs.getBool('isFirstLaunch') ?? true;
-  
+
   if (isFirstLaunch) {
     await prefs.setBool('isFirstLaunch', false);
   }
@@ -77,7 +77,7 @@ Future<void> initializeBackgroundService() async {
   await service.configure(
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
-      autoStart: false, 
+      autoStart: false,
       isForegroundMode: true,
       notificationChannelId: 'soundsense_silent_channel',
       initialNotificationTitle: 'SoundSense is active',
@@ -102,9 +102,9 @@ Future<void> triggerFullScreenAlert(String detectedSound) async {
     category: AndroidNotificationCategory.alarm,
     visibility: NotificationVisibility.public,
   );
-  
+
   final NotificationDetails details = NotificationDetails(android: androidDetails);
-  
+
   await flutterLocalNotificationsPlugin.show(
     id: 999,
     title: 'DANGER: $detectedSound',
@@ -129,12 +129,23 @@ void onStart(ServiceInstance service) async {
   double currentPanicDb = 100.0;
   bool isNormalMode = true;
 
+  bool hornEnabled = true;
+  bool sirenEnabled = true;
+  bool safetyEnabled = true;
+  bool heavyEnabled = true;
+
   Timer.periodic(const Duration(seconds: 2), (timer) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
+    
     currentSensitivity = prefs.getDouble('settings_sensitivity') ?? 0.65;
-    currentPanicDb = prefs.getDouble('settings_panicThreshold') ?? 100.0;
+    currentPanicDb = (prefs.getDouble('settings_panicThreshold') ?? 100.0).clamp(70.0, 100.0);
     isNormalMode = prefs.getBool('isNormalMode') ?? true;
+
+    hornEnabled = prefs.getBool('settings_horn') ?? true;
+    sirenEnabled = prefs.getBool('settings_siren') ?? true;
+    safetyEnabled = prefs.getBool('settings_safety') ?? true;
+    heavyEnabled = prefs.getBool('settings_heavy') ?? true;
   });
 
   try {
@@ -156,26 +167,36 @@ void onStart(ServiceInstance service) async {
 
     List<double> audioBuffer = [];
 
+    Map<String, DateTime> lastAlertTime = {
+      'horn': DateTime.fromMillisecondsSinceEpoch(0),
+      'siren': DateTime.fromMillisecondsSinceEpoch(0),
+      'alarm': DateTime.fromMillisecondsSinceEpoch(0),
+      'heavy': DateTime.fromMillisecondsSinceEpoch(0),
+    };
+
+    // --- NEW STATE VARIABLES FOR SMOOTHING ---
+    String lastDetectedClass = "";
+    int detectionCount = 0;
+
     stream.listen((data) {
       final int length = data.length ~/ 2;
       final ByteData byteData = ByteData.sublistView(data);
-      
+
       double sumSquares = 0.0;
-      
+
       for (int i = 0; i < length; i++) {
         final double sample = byteData.getInt16(i * 2, Endian.little).toDouble();
         final double normalizedSample = sample / 32768.0;
         sumSquares += normalizedSample * normalizedSample;
         audioBuffer.add(normalizedSample);
       }
-      
+
       final double rms = sqrt(sumSquares / length);
       double calculatedDb = 0.0;
-      
-      if (rms > 0.00001) { 
+
+      if (rms > 0.00001) {
         double dbfs = 20 * (log(rms) / ln10);
-        calculatedDb = dbfs + 95.0; 
-        calculatedDb = calculatedDb.clamp(0.0, 120.0);
+        calculatedDb = (dbfs + 95.0).clamp(0.0, 120.0);
       }
 
       service.invoke('update', {
@@ -188,11 +209,13 @@ void onStart(ServiceInstance service) async {
         var inputList = audioBuffer.sublist(audioBuffer.length - requiredInputSize);
         var input = [inputList];
         
+        bool majorAlertTriggered = false; 
+
         try {
           var output = List.filled(labels.length, 0.0).reshape([1, labels.length]);
           interpreter.run(input, output);
 
-          double maxProb = 0.0; 
+          double maxProb = 0.0;
           int maxIdx = -1;
           for (int i = 0; i < labels.length; i++) {
             if (output[0][i] > maxProb) {
@@ -201,42 +224,97 @@ void onStart(ServiceInstance service) async {
             }
           }
 
-          if (maxIdx != -1 && maxProb >= currentSensitivity) {
-            String detectedLabel = labels[maxIdx];
-            
-            service.invoke('update', {
-              'class': detectedLabel,
-              'db': calculatedDb,
-              'confidence': maxProb,
-            });
+          double requiredConfidence = (currentSensitivity - 0.15).clamp(0.40, 1.0);
+          
+          if (calculatedDb > 75.0) {
+            requiredConfidence = (currentSensitivity - 0.25).clamp(0.35, 1.0); 
+          }
 
-            String labelLower = detectedLabel.toLowerCase();
-            bool isEmergency = labelLower.contains("siren") || 
-                               labelLower.contains("alarm") || 
-                               labelLower.contains("horn");
-                               
-            bool isPanic = calculatedDb >= currentPanicDb || (!isNormalMode && labelLower.contains("alarm"));
-            
-            if (isEmergency && calculatedDb > 70.0) {
-              service.invoke('emergency_alert', {
-                'class': detectedLabel,
-                'db': calculatedDb,
-                'confidence': maxProb,
-                'isPanic': isPanic,
-              });
-              
-              if (maxProb > 0.75) {
-                triggerFullScreenAlert(detectedLabel);
-              }
+          // --- SMOOTHING LOGIC APPLIED HERE ---
+          if (maxIdx != -1 && maxProb >= requiredConfidence) {
+            String currentMatch = labels[maxIdx];
+
+            if (currentMatch == lastDetectedClass) {
+                detectionCount++;
+            } else {
+                detectionCount = 1;
+                lastDetectedClass = currentMatch;
             }
+
+            if (detectionCount >= 2) { 
+                String detectedLabel = currentMatch;
+                String labelLower = detectedLabel.toLowerCase();
+
+                bool isTargetSound = false;
+                bool isPanic = false;
+                double requiredDb = 55.0; 
+                String baseClassKey = "";
+
+                if (labelLower.contains("horn")) baseClassKey = 'horn';
+                else if (labelLower.contains("siren")) baseClassKey = 'siren';
+                else if (labelLower.contains("alarm")) baseClassKey = 'alarm';
+                else if (labelLower.contains("heavy") || labelLower.contains("engine")) baseClassKey = 'heavy';
+
+                if (isNormalMode) {
+                  if ((baseClassKey == 'horn' && hornEnabled) ||
+                      (baseClassKey == 'siren' && sirenEnabled) ||
+                      (baseClassKey == 'heavy' && heavyEnabled) ||
+                      (baseClassKey == 'alarm' && safetyEnabled)) { 
+                    isTargetSound = true;
+                    isPanic = calculatedDb >= currentPanicDb;
+                  }
+                } else {
+                  if (baseClassKey == 'alarm' && safetyEnabled) {
+                    isTargetSound = true;
+                    requiredDb = 35.0;
+                    isPanic = true;
+                  }
+                }
+
+                DateTime now = DateTime.now();
+                bool isOffCooldown = baseClassKey.isNotEmpty && 
+                    now.difference(lastAlertTime[baseClassKey]!).inMilliseconds > 1500;
+
+                if (isTargetSound && calculatedDb >= requiredDb && isOffCooldown) {
+                  
+                  lastAlertTime[baseClassKey] = now; 
+                  print("✅ STABLE DETECTION TRIGGERED: $detectedLabel | dB: ${calculatedDb.toStringAsFixed(1)} | Conf: ${maxProb.toStringAsFixed(2)}");
+
+                  service.invoke('update', {
+                    'class': detectedLabel,
+                    'db': calculatedDb,
+                    'confidence': maxProb,
+                  });
+
+                  service.invoke('emergency_alert', {
+                    'class': detectedLabel,
+                    'db': calculatedDb,
+                    'confidence': maxProb,
+                    'isPanic': isPanic,
+                  });
+
+                  if (maxProb > 0.60 || isPanic) {
+                    triggerFullScreenAlert(detectedLabel);
+                    majorAlertTriggered = true; 
+                  }
+                }
+            }
+          } else {
+            // Reset if confidence drops below threshold
+            detectionCount = 0; 
           }
         } catch (e) {
           debugPrint(e.toString());
         }
 
-        audioBuffer.removeRange(0, audioBuffer.length - (requiredInputSize ~/ 2));
+        if (majorAlertTriggered) {
+          audioBuffer.clear();
+        } else {
+          audioBuffer.removeRange(0, audioBuffer.length - (requiredInputSize ~/ 2));
+        }
       }
     });
+
   } catch (e) {
     debugPrint(e.toString());
   }
@@ -244,7 +322,7 @@ void onStart(ServiceInstance service) async {
 
 class SoundSenseApp extends StatelessWidget {
   final bool isFirstLaunch;
-  
+
   const SoundSenseApp({super.key, required this.isFirstLaunch});
 
   @override
@@ -253,7 +331,7 @@ class SoundSenseApp extends StatelessWidget {
       title: 'SoundSense',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: isFirstLaunch ? const SplashScreen() : const MainShell(),   
-       );
+      home: isFirstLaunch ? const SplashScreen() : const MainShell(),
+    );
   }
 }
