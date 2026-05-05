@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:torch_light/torch_light.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/sound_event.dart';
 
 class AlertScreen extends StatefulWidget {
@@ -15,12 +16,55 @@ class AlertScreen extends StatefulWidget {
 
 class _AlertScreenState extends State<AlertScreen> {
   Timer? _strobeTimer;
+  Timer? _countdownTimer;
   bool _isTorchOn = false;
+  
+  int _secondsRemaining = 45;
+  bool _emergencyTriggered = false;
 
   @override
   void initState() {
     super.initState();
     _triggerHardwareAlerts();
+    _startCountdown();
+  }
+
+  void _startCountdown() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsRemaining > 0) {
+        setState(() {
+          _secondsRemaining--;
+        });
+      } else {
+        timer.cancel();
+        if (!_emergencyTriggered) {
+          _executeEmergencyProtocol();
+        }
+      }
+    });
+  }
+
+  Future<void> _executeEmergencyProtocol() async {
+    setState(() {
+      _emergencyTriggered = true;
+    });
+    
+    // Stop the intense hardware alerts so the user can focus on the SMS screen
+    Vibration.cancel();
+    _strobeTimer?.cancel();
+    TorchLight.disableTorch().catchError((_) {});
+
+    // The message that will be sent to contacts. 
+    final String message = "EMERGENCY: SoundSense detected a critical danger (${widget.event.label}) near me. Please check on me immediately. Location: [GPS Link pending]";
+    
+    // Uses url_launcher to open the native SMS app safely
+    final Uri smsUri = Uri.parse("sms:?body=${Uri.encodeComponent(message)}");
+    
+    if (await canLaunchUrl(smsUri)) {
+      await launchUrl(smsUri);
+    } else {
+      debugPrint("Could not launch SMS app");
+    }
   }
 
   Future<void> _triggerHardwareAlerts() async {
@@ -92,6 +136,7 @@ class _AlertScreenState extends State<AlertScreen> {
   void dispose() {
     Vibration.cancel();
     _strobeTimer?.cancel();
+    _countdownTimer?.cancel(); 
     TorchLight.disableTorch().catchError((_) {}); 
     super.dispose();
   }
@@ -136,10 +181,49 @@ class _AlertScreenState extends State<AlertScreen> {
               ),
             ),
             const Spacer(),
+            
+            // --- UPDATED UX COUNTDOWN TIMER ---
+            if (!_emergencyTriggered)
+              Column(
+                children: [
+                  const Text(
+                    'AUTO-NOTIFYING EMERGENCY CONTACTS IN',
+                    style: TextStyle(
+                      color: Colors.white70, 
+                      fontSize: 12, 
+                      fontWeight: FontWeight.bold, 
+                      letterSpacing: 1.2
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_secondsRemaining}s', // Cleaned up formatting here!
+                    style: TextStyle(
+                      color: _secondsRemaining <= 10 ? const Color.fromARGB(255, 255, 200, 200) : Colors.white, 
+                      fontSize: 48, 
+                      fontWeight: FontWeight.w900
+                    ),
+                  ),
+                ],
+              )
+            else
+              const Text(
+                'EMERGENCY PROTOCOL ACTIVATED',
+                style: TextStyle(
+                  color: Colors.white, 
+                  fontSize: 18, 
+                  fontWeight: FontWeight.w900
+                ),
+              ),
+            // ------------------------------
+            
+            const Spacer(),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
               child: GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
+                onTap: () {
+                  Navigator.of(context).pop(); 
+                },
                 child: Container(
                   width: double.infinity,
                   height: 60,
