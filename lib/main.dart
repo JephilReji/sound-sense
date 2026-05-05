@@ -13,6 +13,10 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import 'screens/splash_screen.dart';
 import 'screens/main_shell.dart';
 import 'theme/app_theme.dart';
+import 'models/sound_event.dart';
+import 'screens/alert_screen.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 final AndroidNotificationChannel silentChannel = AndroidNotificationChannel(
   'soundsense_silent_channel',
@@ -33,10 +37,59 @@ final AndroidNotificationChannel alertChannel = AndroidNotificationChannel(
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
+
+// Add a variable at the top of main.dart to track if an alert is currently showing
+bool isAlertActive = false;
+
+void handleNotificationTap(String payload) {
+  // If an alert is already on screen, don't push a new one.
+  // This prevents the "stacking" issue and keeps the 45s timer running.
+  if (isAlertActive) return; 
+
+  SoundClass sClass = SoundClass.horn;
+  String labelLower = payload.toLowerCase();
+  
+  if (labelLower.contains('siren')) sClass = SoundClass.siren;
+  else if (labelLower.contains('alarm')) sClass = SoundClass.safetyAlarm;
+  else if (labelLower.contains('heavy') || labelLower.contains('engine')) sClass = SoundClass.heavyVehicle;
+
+  final event = SoundEvent(
+    soundClass: sClass,
+    confidence: 0.99,
+    decibels: 95.0,
+    timestamp: DateTime.now(),
+    isPanic: true, 
+  );
+
+  isAlertActive = true; // Mark alert as active
+
+  navigatorKey.currentState?.push(
+    MaterialPageRoute(builder: (_) => AlertScreen(event: event))
+  ).then((_) {
+    // When the user dismisses the AlertScreen, allow new alerts to pop up again
+    isAlertActive = false;
+  });
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await requestPermissions();
   await initializeBackgroundService();
+
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  const InitializationSettings initializationSettings =
+      InitializationSettings(android: initializationSettingsAndroid);
+
+  await flutterLocalNotificationsPlugin.initialize(
+    settings: initializationSettings,
+    onDidReceiveNotificationResponse: (NotificationResponse response) {
+      if (response.payload != null) {
+        handleNotificationTap(response.payload!);
+      }
+    },
+  );
+
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -93,6 +146,8 @@ Future<void> initializeBackgroundService() async {
 }
 
 Future<void> triggerFullScreenAlert(String detectedSound) async {
+  HapticFeedback.vibrate();
+  
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
     'emergency_alerts',
     'Emergency Alerts',
@@ -101,6 +156,11 @@ Future<void> triggerFullScreenAlert(String detectedSound) async {
     fullScreenIntent: true,
     category: AndroidNotificationCategory.alarm,
     visibility: NotificationVisibility.public,
+    enableLights: true,
+    color: const Color.fromARGB(255, 255, 0, 0),
+    ledColor: const Color.fromARGB(255, 255, 0, 0),
+    ledOnMs: 1000,
+    ledOffMs: 500,
   );
 
   final NotificationDetails details = NotificationDetails(android: androidDetails);
@@ -110,6 +170,7 @@ Future<void> triggerFullScreenAlert(String detectedSound) async {
     title: 'DANGER: $detectedSound',
     body: 'Immediate awareness required',
     notificationDetails: details,
+    payload: detectedSound,
   );
 }
 
@@ -231,23 +292,15 @@ void onStart(ServiceInstance service) async {
           if (maxIdx != -1 && maxProb >= requiredConfidence) {
             String currentMatch = labels[maxIdx];
 
-            // --- THE DEMO-SAVER HACK ---
-            // If the app is in Normal Mode (Outside) and TM thinks an ambulance is a Fire Alarm,
-            // we manually remap it to Emergency Sirens so the demo works perfectly.
             if (isNormalMode && currentMatch.toLowerCase().contains("alarm")) {
                 currentMatch = "1 Emergency Sirens"; 
             }
-            // ---------------------------
 
-            // --- THE SIREN HANDICAP (NEW FIX) ---
-            // Force the AI to be extremely confident before accepting a Siren.
-            // If it's weak, override it to Vehicle Horn.
             if (currentMatch.toLowerCase().contains("siren")) {
                 if (maxProb < 0.85) { 
-                    currentMatch = "4 Vehicle Horn"; // <-- IMPORTANT: Ensure this matches your labels.txt
+                    currentMatch = "4 Vehicle Horn";
                 }
             }
-            // ------------------------------------
 
             detectionHistory.add(currentMatch);
             if (detectionHistory.length > 3) {
@@ -255,8 +308,9 @@ void onStart(ServiceInstance service) async {
             }
 
             int matchCount = detectionHistory.where((label) => label == currentMatch).length;
+            bool isUrgent = calculatedDb >= currentPanicDb; 
 
-            if (matchCount >= 2) { 
+            if (matchCount >= 2 || (matchCount >= 1 && isUrgent)) { 
                 String detectedLabel = currentMatch;
                 String labelLower = detectedLabel.toLowerCase();
 
@@ -271,7 +325,6 @@ void onStart(ServiceInstance service) async {
                 else if (labelLower.contains("heavy") || labelLower.contains("engine")) baseClassKey = 'heavy';
 
                 if (isNormalMode) {
-                  // Fire Alarm is strictly removed from Normal Mode here.
                   if ((baseClassKey == 'horn' && hornEnabled) ||
                       (baseClassKey == 'siren' && sirenEnabled) ||
                       (baseClassKey == 'heavy' && heavyEnabled)) { 
@@ -279,7 +332,6 @@ void onStart(ServiceInstance service) async {
                     isPanic = calculatedDb >= currentPanicDb;
                   }
                 } else {
-                  // Fire Alarm ONLY triggers in Indoor Mode here.
                   if (baseClassKey == 'alarm' && safetyEnabled) {
                     isTargetSound = true;
                     requiredDb = 35.0;
@@ -294,7 +346,6 @@ void onStart(ServiceInstance service) async {
                 if (isTargetSound && calculatedDb >= requiredDb && isOffCooldown) {
                   
                   lastAlertTime[baseClassKey] = now; 
-                  print("✅ STABLE DETECTION TRIGGERED: $detectedLabel | dB: ${calculatedDb.toStringAsFixed(1)} | Conf: ${maxProb.toStringAsFixed(2)}");
 
                   service.invoke('update', {
                     'class': detectedLabel,
@@ -346,6 +397,7 @@ class SoundSenseApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'SoundSense',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
