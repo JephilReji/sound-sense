@@ -55,7 +55,6 @@ class AppState extends ChangeNotifier {
   DetectionMode detectionMode = DetectionMode.normal;
   int alertDismissTimeout = 30;
 
-  // New Sound Class Preference Flags
   bool hornEnabled = true;
   bool sirenEnabled = true;
   bool safetyAlarmEnabled = true;
@@ -74,7 +73,6 @@ class AppState extends ChangeNotifier {
     locationEnabled = prefs.getBool('locationEnabled') ?? false;
     alertDismissTimeout = prefs.getInt('alertDismissTimeout') ?? 30;
 
-    // Load Sound Preferences
     hornEnabled = prefs.getBool('settings_horn') ?? true;
     sirenEnabled = prefs.getBool('settings_siren') ?? true;
     safetyAlarmEnabled = prefs.getBool('settings_safety') ?? true;
@@ -97,7 +95,6 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('locationEnabled', locationEnabled);
     await prefs.setInt('alertDismissTimeout', alertDismissTimeout);
 
-    // Save Sound Preferences
     await prefs.setBool('settings_horn', hornEnabled);
     await prefs.setBool('settings_siren', sirenEnabled);
     await prefs.setBool('settings_safety', safetyAlarmEnabled);
@@ -106,6 +103,9 @@ class AppState extends ChangeNotifier {
     final contactsStr =
         emergencyContacts.map((c) => jsonEncode(c.toJson())).toList();
     await prefs.setStringList('emergencyContacts', contactsStr);
+
+    final phoneNumbers = emergencyContacts.map((c) => c.phone).toList();
+    await prefs.setStringList('emergency_phones', phoneNumbers);
   }
 
   void updateSoundPreference(String key, bool value) {

@@ -113,6 +113,8 @@ Future<void> requestPermissions() async {
     Permission.microphone,
     Permission.notification,
     Permission.systemAlertWindow,
+    Permission.sms,       // NEW
+    Permission.location,
   ].request();
 }
 
