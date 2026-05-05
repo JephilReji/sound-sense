@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:torch_light/torch_light.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:background_sms/background_sms.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/sound_event.dart';
 
 class AlertScreen extends StatefulWidget {
@@ -49,21 +52,104 @@ class _AlertScreenState extends State<AlertScreen> {
       _emergencyTriggered = true;
     });
     
-    // Stop the intense hardware alerts so the user can focus on the SMS screen
+    // Stop the hardware alerts
     Vibration.cancel();
     _strobeTimer?.cancel();
     TorchLight.disableTorch().catchError((_) {});
 
-    // The message that will be sent to contacts. 
-    final String message = "EMERGENCY: SoundSense detected a critical danger (${widget.event.label}) near me. Please check on me immediately. Location: [GPS Link pending]";
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fetching GPS and sending alerts...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    // 1. Grab Live GPS Location
+    String locLink = "Location unavailable (GPS disabled)";
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (serviceEnabled) {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+           Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+           locLink = "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+        }
+      }
+    } catch (e) {
+      debugPrint("GPS Error: $e");
+    }
+
+    // 2. Format the Emergency Message
+    final String message = "EMERGENCY: SoundSense detected a danger (${widget.event.label}). Check on me immediately. Location: $locLink";
+
+    // 3. Fetch Contacts directly from Profile Screen's raw JSON
+    final prefs = await SharedPreferences.getInstance();
+    List<String> phoneNumbers = [];
     
-    // Uses url_launcher to open the native SMS app safely
-    final Uri smsUri = Uri.parse("sms:?body=${Uri.encodeComponent(message)}");
-    
-    if (await canLaunchUrl(smsUri)) {
-      await launchUrl(smsUri);
+    List<String>? contactsJson = prefs.getStringList('emergencyContacts');
+    if (contactsJson != null && contactsJson.isNotEmpty) {
+      for (String jsonStr in contactsJson) {
+        try {
+          Map<String, dynamic> contactMap = jsonDecode(jsonStr);
+          if (contactMap.containsKey('phone')) {
+            phoneNumbers.add(contactMap['phone'].toString());
+          }
+        } catch (e) {
+          debugPrint("Error parsing contact: $e");
+        }
+      }
+    }
+
+    // 4. Send the SMS or report the exact error
+    if (phoneNumbers.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('FAILED: 0 phone numbers found in memory.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     } else {
-      debugPrint("Could not launch SMS app");
+      int successCount = 0;
+      
+      for (String number in phoneNumbers) {
+        try {
+          SmsStatus result = await BackgroundSms.sendMessage(
+            phoneNumber: number,
+            message: message,
+          );
+          
+          if (result == SmsStatus.sent) {
+            successCount++;
+          }
+        } catch (e) {
+          debugPrint("SMS Error for $number: $e");
+        }
+      }
+
+      if (mounted) {
+        if (successCount == 0) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('FAILED: Found ${phoneNumbers.length} numbers, but Android/Xiaomi blocked the SMS.'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } else {
+           ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('SUCCESS: Sent $successCount out of ${phoneNumbers.length} alerts!'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -182,7 +268,7 @@ class _AlertScreenState extends State<AlertScreen> {
             ),
             const Spacer(),
             
-            // --- UPDATED UX COUNTDOWN TIMER ---
+            // --- UX TIMER UI ---
             if (!_emergencyTriggered)
               Column(
                 children: [
@@ -197,7 +283,7 @@ class _AlertScreenState extends State<AlertScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_secondsRemaining}s', // Cleaned up formatting here!
+                    '${_secondsRemaining}s', // UX fixed to 45s, 44s, etc.
                     style: TextStyle(
                       color: _secondsRemaining <= 10 ? const Color.fromARGB(255, 255, 200, 200) : Colors.white, 
                       fontSize: 48, 
@@ -215,7 +301,6 @@ class _AlertScreenState extends State<AlertScreen> {
                   fontWeight: FontWeight.w900
                 ),
               ),
-            // ------------------------------
             
             const Spacer(),
             Padding(
@@ -248,5 +333,5 @@ class _AlertScreenState extends State<AlertScreen> {
         ),
       ),
     );
-  } //testing
+  }
 }
